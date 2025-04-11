@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
 ARG BASE_IMAGE=pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
 ARG MODEL_SIZE=base_plus
 
@@ -30,9 +35,6 @@ COPY README.md .
 
 RUN pip install --upgrade pip setuptools
 RUN pip install -e ".[interactive-demo]"
-
-# https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite/issues/69#issuecomment-1826764707
-RUN rm /opt/conda/bin/ffmpeg && ln -s /bin/ffmpeg /opt/conda/bin/ffmpeg
 
 # Make app directory. This directory will host all files required for the
 # backend and SAM 2 inference files.
