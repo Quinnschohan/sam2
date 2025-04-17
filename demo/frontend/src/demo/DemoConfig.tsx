@@ -42,3 +42,10 @@ export const DEFAULT_EFFECT_LAYERS: EffectLayers = {
 };
 
 export const MAX_UPLOAD_FILE_SIZE = '70MB';
+
+// Set up quick object segmentation mode
+export function setupQuickTestMode(enabled: boolean) {
+  // Save to window for components that can't use atoms
+  window.quickTestMode = enabled;
+  console.log(`Quick object segmentation ${enabled ? 'enabled' : 'disabled'} - ${enabled ? 'only processing first 2 seconds' : 'processing entire video'}`);
+}

@@ -43,8 +43,12 @@ RUN mkdir ${APP_ROOT}
 # Copy backend server files
 COPY demo/backend/server ${APP_ROOT}/server
 
-# Copy SAM 2 inference files
-COPY sam2 ${APP_ROOT}/server/sam2
+# Copy sam2 module
+COPY sam2 ${APP_ROOT}/sam2
+
+# Copy and set up entrypoint script
+COPY demo/backend/server/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Download SAM 2.1 checkpoints
 ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt ${APP_ROOT}/checkpoints/sam2.1_hiera_tiny.pt
@@ -54,13 +58,5 @@ ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.
 
 WORKDIR ${APP_ROOT}/server
 
-# https://pythonspeed.com/articles/gunicorn-in-docker/
-CMD gunicorn --worker-tmp-dir /dev/shm \
-    --worker-class gthread app:app \
-    --log-level info \
-    --access-logfile /dev/stdout \
-    --log-file /dev/stderr \
-    --workers ${GUNICORN_WORKERS} \
-    --threads ${GUNICORN_THREADS} \
-    --bind 0.0.0.0:${GUNICORN_PORT} \
-    --timeout 60
+# Set the entrypoint script
+ENTRYPOINT ["/entrypoint.sh"]

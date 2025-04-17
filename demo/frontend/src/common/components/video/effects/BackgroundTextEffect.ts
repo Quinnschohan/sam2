@@ -15,8 +15,65 @@
  */
 import {Tracklet} from '@/common/tracker/Tracker';
 import {DEMO_SHORT_NAME} from '@/demo/DemoConfig';
-import {Bound, CanvasForm, Num, Pt, Shaping} from 'pts';
+import {CanvasForm} from 'pts';
 import {AbstractEffect, EffectFrameContext} from './Effect';
+
+// Create our own versions of the Pts utilities needed
+class Pt {
+  x: number;
+  y: number;
+
+  constructor(x: number, y: number) {
+    this.x = x;
+    this.y = y;
+  }
+
+  toBound() {
+    return new Bound(this.x, this.y);
+  }
+
+  scale(scale: number, anchor: [number, number]) {
+    return this;
+  }
+}
+
+class Bound {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+
+  constructor(x: number, y: number) {
+    this.x = x;
+    this.y = y;
+    this.width = 0;
+    this.height = 0;
+  }
+
+  static fromArray(corners: number[][]) {
+    const bound = new Bound(corners[0][0], corners[0][1]);
+    bound.width = corners[1][0] - corners[0][0];
+    bound.height = corners[1][1] - corners[0][1];
+    return bound;
+  }
+}
+
+class Num {
+  static cycle(t: number) {
+    return t - Math.floor(t);
+  }
+}
+
+class Shaping {
+  static quadraticInOut(t: number) {
+    if (t < 0.5) return 2 * t * t;
+    return -1 + (4 - 2 * t) * t;
+  }
+
+  static sineInOut(t: number, size: number = 1) {
+    return size * (Math.sin(t * Math.PI - Math.PI/2) + 1) / 2;
+  }
+}
 
 export default class BackgroundTextEffect extends AbstractEffect {
   constructor() {
@@ -28,7 +85,9 @@ export default class BackgroundTextEffect extends AbstractEffect {
     context: EffectFrameContext,
     _tracklets: Tracklet[],
   ): void {
-    form.image([0, 0], context.frame);
+    // Draw the video frame as background
+    const ctx = form.ctx;
+    ctx.drawImage(context.frame, 0, 0);
 
     const words = ['SEGMENT', 'ANYTHING', 'WOW'];
     const paragraph = `${DEMO_SHORT_NAME} is designed for efficient video processing with streaming inference to enable real-time, interactive applications.`;
@@ -45,32 +104,53 @@ export default class BackgroundTextEffect extends AbstractEffect {
         Num.cycle((context.frameIndex - wordIndex * step) / step),
       );
       const currentSize = fontSize + Shaping.sineInOut(t, sizeMax - fontSize);
-      form.fillOnly('#fff').font(currentSize, 'bold');
-      const area = new Pt(
-        context.width,
-        context.height - (context.height / 4) * (1 - t),
-      )
-        .toBound()
-        .scale(1.5, [context.width / 2, 0]);
+      
+      // Handle text display with direct Canvas API
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${currentSize}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      // Calculate position for centered text
+      const x = context.width / 2;
+      const y = context.height / 2 - (context.height / 8) * (1 - t);
+      
+      ctx.fillText(words[wordIndex], x, y);
 
-      form
-        .alignText('center', 'middle')
-        .textBox(area, words[wordIndex], 'middle');
-
-      // Scrolling paragraph
+    // Scrolling paragraph
     } else {
       const t = Shaping.quadraticInOut(Num.cycle(progress));
       const offset = t * context.height;
-      const area = Bound.fromArray([
-        [0, -context.height + offset],
-        [context.width, context.height],
-      ]);
-      form.fillOnly('#00000066').rect(area);
-      form.fillOnly('#fff').font(context.width / 8, 'bold');
-      form
-        .fillOnly('#fff')
-        .alignText('start')
-        .paragraphBox(area, paragraph, 0.8, 'top', false);
+      
+      // Create semi-transparent background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.fillRect(0, -context.height + offset, context.width, context.height * 2);
+      
+      // Draw text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${context.width / 16}px sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      
+      // Simple text wrapping
+      const lineHeight = context.width / 12;
+      const maxWidth = context.width - 40;
+      const words = paragraph.split(' ');
+      let line = '';
+      let y = -context.height + offset + 20;
+      
+      for (let i = 0; i < words.length; i++) {
+        const testLine = line + words[i] + ' ';
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && i > 0) {
+          ctx.fillText(line, 20, y);
+          line = words[i] + ' ';
+          y += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line, 20, y);
     }
   }
 }

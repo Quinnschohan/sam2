@@ -202,6 +202,7 @@ export default class VideoWorkerContext {
     if (this._ctx == null) {
       throw new Error('could not initialize drawing context');
     }
+    // @ts-ignore - ignore type mismatch between OffscreenCanvasRenderingContext2D and CanvasRenderingContext2D
     this._form = new CanvasForm(this._ctx);
   }
 
@@ -395,6 +396,7 @@ export default class VideoWorkerContext {
       'cannot encode video because failed to construct offscreen canvas context',
     );
 
+    // @ts-ignore - ignore type mismatch between OffscreenCanvasRenderingContext2D and CanvasRenderingContext2D
     const form = new CanvasForm(ctx);
 
     const file = await encodeVideo(
@@ -742,12 +744,13 @@ export default class VideoWorkerContext {
 
     form.ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     form.ctx.beginPath();
-    form.ctx.roundRect(
+    
+    // Use regular rectangle for compatibility with OffscreenCanvasRenderingContext2D
+    form.ctx.rect(
       Math.round(textBoxX),
       Math.round(textBoxY),
       Math.round(textBoxWidth),
-      Math.round(textBoxHeight),
-      [WATERMARK_BOX_HORIZONTAL_PADDING, 0, 0, 0],
+      Math.round(textBoxHeight)
     );
     form.ctx.fill();
 

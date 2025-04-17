@@ -20,6 +20,7 @@ import useVideo from '@/common/components/video/editor/useVideo';
 import {
   areTrackletObjectsInitializedAtom,
   isStreamingAtom,
+  quickTestModeAtom,
   sessionAtom,
   streamingStateAtom,
 } from '@/demo/atoms';
@@ -32,6 +33,7 @@ export default function TrackAndPlayButton() {
   const [isStreaming, setIsStreaming] = useAtom(isStreamingAtom);
   const streamingState = useAtomValue(streamingStateAtom);
   const areObjectsInitialized = useAtomValue(areTrackletObjectsInitializedAtom);
+  const quickTestMode = useAtomValue(quickTestModeAtom);
   const setSession = useSetAtom(sessionAtom);
   const {enqueueMessage} = useMessagesSnackbar();
   const {isThrottled, maxThrottles, throttle} = useFunctionThrottle(250, 4);
@@ -73,7 +75,7 @@ export default function TrackAndPlayButton() {
       () => {
         if (!isStreaming) {
           enqueueMessage('trackAndPlayClick');
-          video?.streamMasks();
+          video?.streamMasks(quickTestMode);
           setSession(previousSession =>
             previousSession == null
               ? previousSession
@@ -94,6 +96,7 @@ export default function TrackAndPlayButton() {
     setSession,
     enqueueMessage,
     throttle,
+    quickTestMode,
   ]);
 
   useEffect(() => {

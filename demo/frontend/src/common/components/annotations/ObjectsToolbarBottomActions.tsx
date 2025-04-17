@@ -15,14 +15,16 @@
  */
 import ClearAllPointsInVideoButton from '@/common/components/annotations/ClearAllPointsInVideoButton';
 import CloseSessionButton from '@/common/components/annotations/CloseSessionButton';
+import QuickSegmentationToggle from '@/common/components/annotations/QuickSegmentationToggle';
 import TrackAndPlayButton from '@/common/components/button/TrackAndPlayButton';
 import ToolbarBottomActionsWrapper from '@/common/components/toolbar/ToolbarBottomActionsWrapper';
 import {
   EFFECT_TOOLBAR_INDEX,
   OBJECT_TOOLBAR_INDEX,
 } from '@/common/components/toolbar/ToolbarConfig';
-import {streamingStateAtom} from '@/demo/atoms';
-import {useAtomValue} from 'jotai';
+import {quickTestModeAtom, streamingStateAtom} from '@/demo/atoms';
+import {useAtom, useAtomValue} from 'jotai';
+import {Toggle} from 'react-daisyui';
 
 type Props = {
   onTabChange: (newIndex: number) => void;
@@ -30,6 +32,7 @@ type Props = {
 
 export default function ObjectsToolbarBottomActions({onTabChange}: Props) {
   const streamingState = useAtomValue(streamingStateAtom);
+  const [quickTestMode, setQuickTestMode] = useAtom(quickTestModeAtom);
 
   const isTrackingEnabled =
     streamingState !== 'none' && streamingState !== 'full';
@@ -43,6 +46,21 @@ export default function ObjectsToolbarBottomActions({onTabChange}: Props) {
       <ClearAllPointsInVideoButton
         onRestart={() => onTabChange(OBJECT_TOOLBAR_INDEX)}
       />
+      {!isTrackingEnabled && streamingState !== 'full' && (
+        <QuickSegmentationToggle />
+      )}
+      {isTrackingEnabled && (
+        <div className="form-control flex flex-row items-center gap-2">
+          <label className="label cursor-pointer p-0">
+            <span className="label-text text-xs whitespace-nowrap">Quick Test (10 frames)</span> 
+          </label>
+          <Toggle 
+            checked={quickTestMode}
+            onChange={(e) => setQuickTestMode(e.target.checked)}
+            size="sm"
+          />
+        </div>
+      )}
       {isTrackingEnabled && <TrackAndPlayButton />}
       {streamingState === 'full' && (
         <CloseSessionButton onSessionClose={handleSwitchToEffectsTab} />

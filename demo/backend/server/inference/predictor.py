@@ -35,6 +35,7 @@ from inference.data_types import (
 )
 from pycocotools.mask import decode as decode_masks, encode as encode_masks
 from sam2.build_sam import build_sam2_video_predictor
+import math
 
 
 logger = logging.getLogger(__name__)
@@ -270,8 +271,13 @@ class InferenceAPI:
     def propagate_in_video(
         self, request: PropagateInVideoRequest
     ) -> Generator[PropagateDataResponse, None, None]:
+        print("--- PRINT: ENTERING propagate_in_video ---", flush=True)
+        logger.info("--- ENTERING propagate_in_video ---")
         session_id = request.session_id
         start_frame_idx = request.start_frame_index
+        quick_test_mode = request.quick_test_mode
+        print(f"--- PRINT: Received quick_test_mode flag: {quick_test_mode} ---", flush=True)
+        logger.info(f"Received quick_test_mode flag: {quick_test_mode}")
         propagation_direction = "both"
         max_frame_num_to_track = None
 
@@ -283,16 +289,37 @@ class InferenceAPI:
         # in caller to this method to ensure that it's called under the correct context
         # (we've added `autocast_context` to `gen_track_with_mask_stream` in app.py).
         with self.autocast_context(), self.inference_lock:
-            logger.info(
-                f"propagate in video in session {session_id}: "
-                f"{propagation_direction=}, {start_frame_idx=}, {max_frame_num_to_track=}"
-            )
-
             try:
                 session = self.__get_session(session_id)
                 session["canceled"] = False
-
                 inference_state = session["state"]
+
+                # Calculate max frames if quick test mode is enabled
+                if quick_test_mode:
+                    try:
+                        # Accessing fps, might be nested differently depending on predictor version
+                        fps = inference_state.get("video_meta", {}).get("fps")
+                        if fps is None:
+                            # Fallback or alternative location if needed
+                             fps = inference_state.get("constants", {}).get("fps")
+
+                        if fps is not None and fps > 0:
+                             max_frame_num_to_track = 10  # Fixed at exactly 10 frames regardless of FPS
+                             logger.info(f"Quick test mode enabled: tracking max {max_frame_num_to_track} frames (reduced from normal).")
+                        else:
+                             logger.warning("Could not determine FPS for quick test mode. Using 10 frames.")
+                             max_frame_num_to_track = 10  # Hardcoded to 10 frames even if FPS can't be determined
+                    except KeyError:
+                         logger.warning("Could not find FPS in inference_state for quick test mode. Using 10 frames.")
+                         max_frame_num_to_track = 10 # Use 10 frames even if keys don't exist
+
+
+                logger.info(
+                    f"propagate in video in session {session_id}: "
+                    f"{propagation_direction=}, {start_frame_idx=}, {max_frame_num_to_track=} (QuickTest: {quick_test_mode})"
+                )
+
+
                 if propagation_direction not in ["both", "forward", "backward"]:
                     raise ValueError(
                         f"invalid propagation direction: {propagation_direction}"
@@ -307,7 +334,7 @@ class InferenceAPI:
                         reverse=False,
                     ):
                         if session["canceled"]:
-                            return None
+                            return
 
                         frame_idx, obj_ids, video_res_masks = outputs
                         masks_binary = (
@@ -325,6 +352,8 @@ class InferenceAPI:
 
                 # Then doing the backward propagation (reverse in time)
                 if propagation_direction in ["both", "backward"]:
+                     # When propagating backward from start_frame_idx, the max_frame_num_to_track
+                     # limit still applies to the *number* of frames processed.
                     for outputs in self.predictor.propagate_in_video(
                         inference_state=inference_state,
                         start_frame_idx=start_frame_idx,
@@ -332,7 +361,7 @@ class InferenceAPI:
                         reverse=True,
                     ):
                         if session["canceled"]:
-                            return None
+                             return
 
                         frame_idx, obj_ids, video_res_masks = outputs
                         masks_binary = (

@@ -20,6 +20,7 @@ type Props = {
   title: string;
   description?: string;
   bottomSection?: ReactNode;
+  extraContent?: ReactNode;
   showProgressChip?: boolean;
   className?: string;
 };
@@ -28,6 +29,7 @@ export default function ToolbarHeaderWrapper({
   title,
   description,
   bottomSection,
+  extraContent,
   showProgressChip = true,
   className,
 }: Props) {
@@ -42,6 +44,7 @@ export default function ToolbarHeaderWrapper({
       {description != null && (
         <div className="flex-1 text-gray-400">{description}</div>
       )}
+      {extraContent != null && extraContent}
       {bottomSection != null && bottomSection}
     </div>
   );

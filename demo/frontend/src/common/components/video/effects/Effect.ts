@@ -25,6 +25,7 @@ export type EffectLayers = {
 
 export type EffectOptions = {
   variant: number;
+  backgroundVideoSrc?: string;
 };
 
 export type EffectInit = {

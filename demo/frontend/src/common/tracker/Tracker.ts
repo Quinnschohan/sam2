@@ -69,7 +69,7 @@ export interface ITracker {
   ): Promise<void>;
   clearPointsInFrame(frameIndex: number, objectId: number): Promise<void>;
   clearPointsInVideo(): Promise<void>;
-  streamMasks(frameIndex: number): Promise<void>;
+  streamMasks(frameIndex: number, quickTestMode?: boolean): Promise<void>;
   abortStreamMasks(): void;
   enableStats(): void;
 }
@@ -93,7 +93,7 @@ export abstract class Tracker implements ITracker {
     objectId: number,
   ): Promise<void>;
   abstract clearPointsInVideo(): Promise<void>;
-  abstract streamMasks(frameIndex: number): Promise<void>;
+  abstract streamMasks(frameIndex: number, quickTestMode?: boolean): Promise<void>;
   abstract abortStreamMasks(): void;
   abstract enableStats(): void;
 

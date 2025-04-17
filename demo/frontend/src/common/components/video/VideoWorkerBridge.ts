@@ -296,7 +296,7 @@ export default class VideoWorkerBridge extends EventEmitter<VideoWorkerEventMap>
   }
 
   createFilmstrip(width: number, height: number): Promise<ImageBitmap> {
-    return new Promise((resolve, _reject) => {
+    return new Promise((resolve, reject) => {
       const handleFilmstripResponse = (
         event: MessageEvent<FilmstripResponse>,
       ) => {
@@ -308,10 +308,7 @@ export default class VideoWorkerBridge extends EventEmitter<VideoWorkerEventMap>
 
       this.worker.addEventListener('message', handleFilmstripResponse);
 
-      this.sendRequest<FilmstripRequest>('filmstrip', {
-        width,
-        height,
-      });
+      this.sendRequest<FilmstripRequest>('createFilmstrip', {width, height});
     });
   }
 
@@ -422,7 +419,6 @@ export default class VideoWorkerBridge extends EventEmitter<VideoWorkerEventMap>
 
   clearPointsInFrame(objectId: number) {
     this.sendRequest<ClearPointsInFrameRequest>('clearPointsInFrame', {
-      frameIndex: this.frame,
       objectId,
     });
   }
@@ -442,9 +438,9 @@ export default class VideoWorkerBridge extends EventEmitter<VideoWorkerEventMap>
     });
   }
 
-  streamMasks(): void {
+  streamMasks(quickTestMode?: boolean): void {
     this.sendRequest<StreamMasksRequest>('streamMasks', {
-      frameIndex: this.frame,
+      quickTestMode: quickTestMode ?? false,
     });
   }
 
@@ -488,9 +484,7 @@ export default class VideoWorkerBridge extends EventEmitter<VideoWorkerEventMap>
         action,
         ...payload,
       },
-      {
-        transfer,
-      },
+      transfer ?? [],
     );
   }
 

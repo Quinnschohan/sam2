@@ -77,13 +77,24 @@ def send_uploaded_video(path: str):
 @app.route("/propagate_in_video", methods=["POST"])
 def propagate_in_video() -> Response:
     data = request.json
-    args = {
-        "session_id": data["session_id"],
-        "start_frame_index": data.get("start_frame_index", 0),
-    }
+    if data is None:
+        return make_response("Invalid JSON", 400)
+    
+    # Read all required fields from JSON payload
+    session_id = data.get("session_id")
+    start_frame_index = data.get("start_frame_index", 0) # Default to 0 if not provided
+    quick_test_mode = data.get("quick_test_mode", False) # Read the flag, default to False
+
+    if session_id is None:
+        return make_response("Missing session_id", 400)
 
     boundary = "frame"
-    frame = gen_track_with_mask_stream(boundary, **args)
+    frame = gen_track_with_mask_stream(
+        boundary=boundary, 
+        session_id=session_id, 
+        start_frame_index=start_frame_index,
+        quick_test_mode=quick_test_mode # Pass the flag down
+    )
     return Response(frame, mimetype="multipart/x-savi-stream; boundary=" + boundary)
 
 
@@ -91,15 +102,20 @@ def gen_track_with_mask_stream(
     boundary: str,
     session_id: str,
     start_frame_index: int,
+    quick_test_mode: bool = False # Add parameter here
 ) -> Generator[bytes, None, None]:
     with inference_api.autocast_context():
-        request = PropagateInVideoRequest(
+        request_data = PropagateInVideoRequest(
             type="propagate_in_video",
             session_id=session_id,
             start_frame_index=start_frame_index,
+            quick_test_mode=quick_test_mode # Pass the flag to the request object
         )
 
-        for chunk in inference_api.propagate_in_video(request=request):
+        logger.info(f"--- APP: Calling propagate_in_video with request: {request_data.to_dict()} ---")
+        print(f"--- PRINT APP: Calling propagate_in_video with request: {request_data.to_dict()} ---", flush=True)
+
+        for chunk in inference_api.propagate_in_video(request=request_data):
             yield MultipartResponseBuilder.build(
                 boundary=boundary,
                 headers={

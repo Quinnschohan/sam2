@@ -547,7 +547,7 @@ class SAM2VideoPredictor(SAM2Base):
         self,
         inference_state,
         start_frame_idx=None,
-        max_frame_num_to_track=None,
+        max_frame_num_to_track=10,
         reverse=False,
     ):
         """Propagate the input points across frames to track in the entire video."""

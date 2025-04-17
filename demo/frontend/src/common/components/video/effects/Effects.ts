@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 import BackgroundTextEffect from './BackgroundTextEffect';
+import BackgroundVideoEffect from './BackgroundVideoEffect';
 import DesaturateEffect from './DesaturateEffect';
 import {Effect} from './Effect';
 import EraseBackgroundEffect from './EraseBackgroundEffect';
@@ -42,6 +43,7 @@ export type Effects = {
   Sobel: Effect;
   BackgroundText: Effect;
   BackgroundBlur: Effect;
+  BackgroundVideo: Effect;
   Gradient: Effect;
 
   /* Highlights */
@@ -68,6 +70,7 @@ export default {
   Sobel: new SobelEffect(),
   BackgroundText: new BackgroundTextEffect(),
   BackgroundBlur: new BackgroundBlurEffect(),
+  BackgroundVideo: new BackgroundVideoEffect(),
   Gradient: new GradientEffect(),
 
   /* Highlights */
@@ -97,6 +100,10 @@ export type EffectsCombo = [EffectComboItem, EffectComboItem];
 export const effectPresets: EffectsCombo[] = [
   [
     {name: 'Original', variant: 0},
+    {name: 'Overlay', variant: 0},
+  ],
+  [
+    {name: 'BackgroundVideo', variant: 0},
     {name: 'Overlay', variant: 0},
   ],
   [

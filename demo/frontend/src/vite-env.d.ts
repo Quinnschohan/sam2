@@ -14,3 +14,8 @@
  * limitations under the License.
  */
 /// <reference types="vite/client" />
+
+interface Window {
+  _lastBgVideoUrl?: string;
+  quickTestMode?: boolean; // For toggling quick test mode
+}

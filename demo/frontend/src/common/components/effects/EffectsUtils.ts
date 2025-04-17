@@ -29,6 +29,7 @@ import {
   Image,
   Overlay,
   TextFont,
+  Video,
 } from '@carbon/icons-react';
 
 export type DemoEffect = {
@@ -40,6 +41,7 @@ export type DemoEffect = {
 export const backgroundEffects: DemoEffect[] = [
   {title: 'Original', Icon: Image, effectName: 'Original'},
   {title: 'Erase', Icon: Erase, effectName: 'EraseBackground'},
+  {title: 'Video', Icon: Video, effectName: 'BackgroundVideo'},
   {
     title: 'Gradient',
     Icon: ColorPalette,

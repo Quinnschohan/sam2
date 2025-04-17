@@ -21,10 +21,22 @@ import useVideoEffect from '@/common/components/video/editor/useVideoEffect';
 import {EffectIndex} from '@/common/components/video/effects/Effects';
 import {activeBackgroundEffectAtom} from '@/demo/atoms';
 import {useAtomValue} from 'jotai';
+import BackgroundVideoControl from './BackgroundVideoControl';
+import {useCallback} from 'react';
 
 export default function BackgroundEffects() {
   const setEffect = useVideoEffect();
   const activeEffect = useAtomValue(activeBackgroundEffectAtom);
+
+  const handleVideoSelected = useCallback(
+    (backgroundVideoSrc: string) => {
+      setEffect('BackgroundVideo', EffectIndex.BACKGROUND, {
+        variant: activeEffect.name === 'BackgroundVideo' ? activeEffect.variant : 0,
+        backgroundVideoSrc,
+      });
+    },
+    [setEffect, activeEffect],
+  );
 
   return (
     <ToolbarSection title="Background" borderBottom={false}>
@@ -56,6 +68,13 @@ export default function BackgroundEffects() {
           />
         );
       })}
+
+      {/* Show background video control when background video effect is active */}
+      {activeEffect.name === 'BackgroundVideo' && (
+        <div className="mt-4 px-2">
+          <BackgroundVideoControl onVideoSelected={handleVideoSelected} />
+        </div>
+      )}
     </ToolbarSection>
   );
 }

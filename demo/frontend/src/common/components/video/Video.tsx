@@ -102,7 +102,7 @@ export type VideoRef = {
     options?: EffectOptions,
   ): void;
   encode(): void;
-  streamMasks(): void;
+  streamMasks(quickTestMode?: boolean): void;
   abortStreamMasks(): Promise<void>;
   addEventListener<K extends keyof VideoWorkerEventMap>(
     type: K,
@@ -204,8 +204,8 @@ export default forwardRef<VideoRef, Props>(function Video(
       encode(): void {
         bridge.encode();
       },
-      streamMasks(): void {
-        bridge.streamMasks();
+      streamMasks(quickTestMode?: boolean): void {
+        bridge.streamMasks(quickTestMode);
       },
       abortStreamMasks(): Promise<void> {
         return bridge.abortStreamMasks();

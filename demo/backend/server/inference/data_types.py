@@ -111,6 +111,7 @@ class PropagateInVideoRequest(BaseRequest):
     type: str
     session_id: str
     start_frame_index: int
+    quick_test_mode: bool = False
 
 
 @dataclass_json

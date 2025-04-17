@@ -12,10 +12,13 @@ services:
     build:
       context: .
       dockerfile: backend.Dockerfile
+      args:
+        MODEL_SIZE: tiny
     ports:
       - 7263:5000
     volumes:
       - ./demo/data/:/data/:rw
+      - ./demo/backend/server:/opt/sam2/server:rw
     environment:
       - SERVER_ENVIRONMENT=DEV
       - GUNICORN_WORKERS=1
@@ -35,3 +38,15 @@ services:
       - VIDEO_ENCODE_VERBOSE=False
       # Force CPU usage on Mac
       - SAM2_DEMO_FORCE_CPU_DEVICE=1
+    # Remove the command override, as it's now handled by ENTRYPOINT
+    # command: >
+    #   gunicorn --worker-tmp-dir /dev/shm 
+    #     --worker-class gthread app:app 
+    #     --log-level info 
+    #     --access-logfile /dev/stdout 
+    #     --log-file /dev/stderr 
+    #     --workers $${GUNICORN_WORKERS} 
+    #     --threads $${GUNICORN_THREADS} 
+    #     --bind 0.0.0.0:$${GUNICORN_PORT} 
+    #     --timeout 60 
+    #     --reload

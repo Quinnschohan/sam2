@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 import ToolbarHeaderWrapper from '@/common/components/toolbar/ToolbarHeaderWrapper';
-import {isStreamingAtom, streamingStateAtom} from '@/demo/atoms';
-import {useAtomValue} from 'jotai';
+import {isStreamingAtom, quickTestModeAtom, streamingStateAtom} from '@/demo/atoms';
+import {useAtom, useAtomValue} from 'jotai';
+import {setupQuickTestMode} from '@/demo/DemoConfig';
 
 export default function ObjectsToolbarHeader() {
   const isStreaming = useAtomValue(isStreamingAtom);

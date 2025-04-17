@@ -3366,10 +3366,10 @@ prop-types@^15.7.2, prop-types@^15.8.1:
     object-assign "^4.1.1"
     react-is "^16.13.1"
 
-pts@^0.12.8:
-  version "0.12.8"
-  resolved "https://registry.yarnpkg.com/pts/-/pts-0.12.8.tgz#73859d15253fc4b7c028587bd56e9fe7b2936231"
-  integrity sha512-e4nynKJtC1A9rst+qaxSfQLQmQWj3tbd0tK/n7u44tEGJNoF6yni5f7P68+KBmBZOQEEBts8l5jFYgkyxUNsog==
+pts@^0.12.9:
+  version "0.12.9"
+  resolved "https://registry.yarnpkg.com/pts/-/pts-0.12.9.tgz#460f216ca77fc65cc678624138579d5006a2b6b7"
+  integrity sha512-ncpQdP/44KIcfzaJpQ635/0eYpSMxlUG1wtAIWKFJFChyn06I/PdWAcGRTVKIDD5ug8qAp2UdBZCPyCwHCrfcw==
   optionalDependencies:
     "@nrwl/cli" "13.7.1"
 

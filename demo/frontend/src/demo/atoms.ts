@@ -181,3 +181,10 @@ export const messageMapAtom = atom<MessagesEventMap>(defaultMessageMap);
 export const uploadingStateAtom = atom<'default' | 'uploading' | 'error'>(
   'default',
 );
+
+// #####################
+// Quick Test Mode
+// #####################
+
+// Default to true (enabled) for quicker effects access
+export const quickTestModeAtom = atom<boolean>(true);
