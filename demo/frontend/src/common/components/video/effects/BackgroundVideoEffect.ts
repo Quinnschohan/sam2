@@ -151,6 +151,26 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
+  // Binary search to find the index of the frame with timestamp <= targetTime
+  private findFrameIndex(targetTime: number): number {
+      let low = 0;
+      let high = this._backgroundVideoFrames.length - 1;
+      let bestIndex = 0; // Default to the first frame
+
+      while (low <= high) {
+          const mid = Math.floor((low + high) / 2);
+          const frameTimestamp = this._backgroundVideoFrames[mid].timestamp;
+
+          if (frameTimestamp <= targetTime) {
+              bestIndex = mid; // This frame is a candidate
+              low = mid + 1; // Try to find a later frame that's still <= targetTime
+          } else {
+              high = mid - 1; // This frame is too late, search earlier
+          }
+      }
+      return bestIndex;
+  }
+
   apply(form: CanvasForm, context: EffectFrameContext, _tracklets: Tracklet[]) {
     const gl = this._gl;
     const program = this._program;
@@ -199,23 +219,9 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
       // Calculate main video current time (in seconds)
       const mainCurrentTime = context.fps > 0 ? context.frameIndex / context.fps : 0;
 
-      // Find the closest background frame by timestamp
-      // (Using simple linear search for now, could optimize with binary search if needed)
-      let closestFrame = this._backgroundVideoFrames[0] || null;
-      let minDiff = Infinity;
-
-      for (const frame of this._backgroundVideoFrames) {
-          const diff = Math.abs(frame.timestamp - mainCurrentTime);
-          if (diff < minDiff) {
-              minDiff = diff;
-              closestFrame = frame;
-          } else {
-              // Since frames are sorted, once the difference increases, we can stop.
-              break; 
-          }
-      }
-      
-      this._backgroundVideo = closestFrame; 
+      // Find the index of the background frame whose timestamp is <= mainCurrentTime
+      const frameIndex = this.findFrameIndex(mainCurrentTime);
+      this._backgroundVideo = this._backgroundVideoFrames[frameIndex] || null; 
 
       // Bind the background video texture
       gl.activeTexture(gl.TEXTURE0 + this._backgroundVideoTextureUnit);

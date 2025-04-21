@@ -31,192 +31,183 @@ type TimestampedFrame = { timestamp: number; bitmap: ImageBitmap };
 
 // Restore the correct frame extraction function
 async function extractFramesFromFile(file: File): Promise<TimestampedFrame[]> {
-  console.log('[MainThread] Starting extractFramesFromFile (<video> rAF method)...');
+  console.log('[MainThread] Starting extractFramesFromFile (Manual Seek method)...');
   const video = document.createElement('video');
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   const frames: TimestampedFrame[] = [];
   const objectUrl = URL.createObjectURL(file);
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  let frameRequestCallbackId: number | null = null; 
+  const TARGET_FRAMES = 200; // Target number of frames to extract
+  let cancelExtraction = false; // Flag to signal cancellation
 
   if (!ctx) {
-    URL.revokeObjectURL(objectUrl); // Clean up URL if context fails early
+    URL.revokeObjectURL(objectUrl);
     throw new Error('Failed to get 2D context from canvas');
   }
 
   // Overall timeout for the extraction process
-  const operationTimeoutPromise = new Promise((_, reject) => {
+  const operationTimeoutPromise = new Promise<void>((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(new Error('Frame extraction operation timed out (120s)')); 
+      console.error('[MainThread] Frame extraction operation timed out (120s)');
+      cancelExtraction = true; // Signal extraction loop to stop
+      reject(new Error('Frame extraction operation timed out (120s)'));
     }, 120000); // 120 second overall timeout
   });
 
   try {
+    // --- Load Video Metadata ---
     const loadPromise = new Promise<void>((resolve, reject) => {
-        video.onloadedmetadata = () => {
-          console.log('[MainThread] video.onloadedmetadata fired.');
-          resolve();
-        };
-        video.onerror = (e) => reject(new Error(`Video loading error: ${video.error?.message || 'Unknown error'}`));
+      video.onloadedmetadata = () => {
+        console.log('[MainThread] video.onloadedmetadata fired.');
+        if (video.duration === Infinity || isNaN(video.duration) || video.duration <= 0) {
+            reject(new Error(`Video has invalid duration: ${video.duration}`));
+        } else {
+            resolve();
+        }
+      };
+      video.onerror = (e) => reject(new Error(`Video loading error: ${video.error?.message || 'Unknown error'}`));
 
-        video.crossOrigin = 'anonymous';
-        video.muted = true;
-        video.preload = 'auto'; // Hint browser to load metadata
-        video.src = objectUrl;
-        video.load(); // Explicitly call load
-        console.log('[MainThread] video.load() called.');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.preload = 'metadata'; // Only need metadata initially
+      video.src = objectUrl;
+      video.load();
+      console.log('[MainThread] video.load() called for metadata.');
     });
 
-    // Wait for metadata or the overall timeout
     await Promise.race([loadPromise, operationTimeoutPromise]);
 
-    console.log(`[MainThread] Video metadata loaded. ReadyState: ${video.readyState}`);
+    console.log(`[MainThread] Video metadata loaded. Duration: ${video.duration.toFixed(2)}s, ReadyState: ${video.readyState}`);
 
-    // Check for valid dimensions and duration
-    if (!video.videoWidth || !video.videoHeight || !video.duration || video.duration === Infinity || isNaN(video.duration)) {
-       console.error('[MainThread] Invalid video metadata:', {
-           width: video.videoWidth,
-           height: video.videoHeight,
-           duration: video.duration,
-           readyState: video.readyState,
-           error: video.error
-       });
-       throw new Error('Failed to get valid video metadata (dimensions/duration).');
+    if (!video.videoWidth || !video.videoHeight) {
+      console.error('[MainThread] Invalid video dimensions:', {
+        width: video.videoWidth,
+        height: video.videoHeight,
+      });
+      throw new Error('Failed to get valid video dimensions.');
     }
 
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    video.pause(); // Ensure video is paused
 
-    // --- Frame Extraction using requestAnimationFrame --- START ---
-    const TARGET_FRAMES = 200; 
-    const framesPerSecond = 10; // Keep slightly lower FPS threshold
-    let lastCapturedTime = -1; // Track time to avoid duplicate frames
-    const timeThreshold = 1 / (framesPerSecond * 1.5); // Minimum time diff needed
-    let rafError: Error | null = null; // To capture errors from async rAF
+    // --- Frame Extraction using Manual Seeking --- START ---
+    console.log(`[MainThread] Attempting to extract ~${TARGET_FRAMES} frames via manual seeking...`);
+    const duration = video.duration;
+    const step = duration / TARGET_FRAMES; // Time step between frames
+    let framesExtracted = 0;
 
-    console.log(`[MainThread] Attempting to extract ${TARGET_FRAMES} frames via rAF...`); 
+    // Wrap the seek/capture loop in a promise
+    const captureLoopPromise = new Promise<void>(async (resolve, reject) => {
+        for (let i = 0; i < TARGET_FRAMES; i++) {
+            if (cancelExtraction) { // Check if timeout occurred
+                 console.log('[MainThread] Seek loop cancelled due to timeout.');
+                 resolve(); // Resolve normally, timeout error handled by Promise.race
+                 return;
+            }
 
-    // Wait for initial seek to complete before starting capture
-    console.log("[MainThread] rAF: Seeking to start before capture...");
-    video.pause(); // Ensure paused before seeking
-    video.currentTime = 0;
-    await new Promise<void>((resolve, reject) => {
-        let seekTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
-        const seekedListener = () => {
-            if(seekTimeoutTimer) clearTimeout(seekTimeoutTimer);
-            console.log("[MainThread] rAF: Initial seek completed.");
-            video.onseeked = null; // Cleanup listener
-            resolve();
-        };
-        const errorListener = () => {
-             if(seekTimeoutTimer) clearTimeout(seekTimeoutTimer);
-             video.onerror = null;
-             video.onseeked = null;
-             reject(new Error("Error during initial seek to 0"));
-        }
-        seekTimeoutTimer = setTimeout(() => {
-            console.warn("[MainThread] rAF: Initial seek timed out (1s). Proceeding anyway...");
-            video.onerror = null;
-            video.onseeked = null;
-            resolve(); // Resolve even on timeout
-        }, 1000);
-        video.onseeked = seekedListener;
-        video.onerror = errorListener;
-    });
-    
-    // Now start the capture process after initial seek
-    const capturePromise = new Promise<void>((resolve, reject) => {
+            const targetTime = i * step;
+            // Clamp targetTime to prevent seeking beyond duration
+            const currentTime = Math.min(targetTime, duration); 
 
-      const captureFrame = async () => {
-        // Stop conditions
-        if (frames.length >= TARGET_FRAMES) {
-          console.log(`[MainThread] rAF: Target ${TARGET_FRAMES} frames captured.`);
-          resolve();
-          return;
-        }
-        if (video.ended) {
-           console.log("[MainThread] rAF: Video ended before capturing target frames.");
-           resolve();
-           return;
-        }
-        if (rafError) { // Check if an error occurred in a previous async step
-            reject(rafError);
-            return;
-        }
+            console.log(`[MainThread] Seek: Requesting frame ${i + 1}/${TARGET_FRAMES} at time ${currentTime.toFixed(3)}s`);
 
-        // Throttle capture based on time elapsed
-        if (video.currentTime > lastCapturedTime + timeThreshold) {
             try {
-                const captureTime = video.currentTime;
-                console.log(`[MainThread] rAF: Capturing frame at time ${captureTime.toFixed(3)}s (${frames.length + 1}/${TARGET_FRAMES})`); 
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const imageBitmap = await createImageBitmap(canvas);
-                frames.push({ timestamp: captureTime, bitmap: imageBitmap }); 
-                lastCapturedTime = captureTime; 
-            } catch (drawError: any) {
-                console.error('[MainThread] rAF: Error drawing or creating bitmap:', drawError);
-                rafError = drawError instanceof Error ? drawError : new Error(String(drawError));
-                resolve(); // Resolve to stop loop, error handled outside
-                return;
+                await new Promise<void>((resolveSeek, rejectSeek) => {
+                    let seekTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+                    const onSeeked = () => {
+                        if (seekTimeoutTimer) clearTimeout(seekTimeoutTimer);
+                        video.onseeked = null; // Clean up listener
+                        video.onerror = null;
+                        
+                        // Use rAF to ensure drawing happens after seek completes paint cycle
+                        requestAnimationFrame(async () => {
+                             if (cancelExtraction) { // Check again before drawing
+                                 resolveSeek();
+                                 return;
+                             }
+                             try {
+                                 console.log(`[MainThread] Seek: Drawing frame ${i + 1} at ${video.currentTime.toFixed(3)}s`);
+                                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                                 const imageBitmap = await createImageBitmap(canvas);
+                                 frames.push({ timestamp: video.currentTime, bitmap: imageBitmap });
+                                 framesExtracted++;
+                                 resolveSeek();
+                             } catch (drawError) {
+                                 console.error(`[MainThread] Seek: Error drawing or creating bitmap for frame ${i + 1}`, drawError);
+                                 rejectSeek(drawError instanceof Error ? drawError : new Error(String(drawError)));
+                             }
+                        });
+                    };
+
+                    const onError = () => {
+                        if (seekTimeoutTimer) clearTimeout(seekTimeoutTimer);
+                        video.onseeked = null;
+                        video.onerror = null;
+                        console.error(`[MainThread] Seek: Error seeking to time ${currentTime.toFixed(3)}s`);
+                        // Don't reject the whole loop, just skip this frame
+                        // rejectSeek(new Error(`Video seeking error at time ${currentTime.toFixed(3)}s`)); 
+                        resolveSeek(); // Resolve to continue with the next frame
+                    };
+
+                     // Timeout for a single seek operation (e.g., 5 seconds)
+                     seekTimeoutTimer = setTimeout(() => {
+                         console.warn(`[MainThread] Seek: Timeout waiting for seek to ${currentTime.toFixed(3)}s`);
+                         video.onseeked = null;
+                         video.onerror = null;
+                         // Don't reject, just skip this frame attempt.
+                         resolveSeek(); // Resolve to continue
+                     }, 5000); // 5 second timeout per seek
+
+                    video.onseeked = onSeeked;
+                    video.onerror = onError;
+                    video.currentTime = currentTime;
+                });
+
+            } catch (seekError) {
+                console.error(`[MainThread] Seek: Unhandled error during seek/capture for frame ${i + 1}:`, seekError);
+                // Optionally decide whether to continue or reject the whole process
+                // For now, we log and continue
             }
         }
-
-        // Request next frame if still running
-        if (frames.length < TARGET_FRAMES && !video.ended && !rafError) { 
-            frameRequestCallbackId = requestAnimationFrame(captureFrame);
-        } else {
-            resolve(); // Ensure promise resolves if loop condition ends
-        }
-      };
-
-      // Start playback and capture loop
-      console.log('[MainThread] rAF: Starting video playback for frame capture...');
-      video.currentTime = 0; // Ensure starting from beginning
-      video.play().then(() => {
-          console.log('[MainThread] rAF: Playback started, beginning rAF loop.');
-          frameRequestCallbackId = requestAnimationFrame(captureFrame);
-      }).catch(playError => {
-          console.error('[MainThread] rAF: Error starting playback for capture:', playError);
-          reject(playError);
-      });
+        resolve(); // Resolve capture loop promise when done
     });
 
-    // Wait for capture to finish or the overall timeout
-    await Promise.race([capturePromise, operationTimeoutPromise]);
-    
-    // If rAF loop finished due to an error captured inside it
-    if (rafError) {
-        throw rafError;
-    }
 
-    console.log(`[MainThread] rAF: Finished extraction (target reached, video ended or timeout). Total frames captured: ${frames.length}`); 
-    if (frames.length === 0 && video.duration > 0.1) { 
-        throw new Error('Failed to extract any frames using rAF method, although video seemed valid.');
-    } else if (frames.length < TARGET_FRAMES && !video.ended) {
-        console.warn(`[MainThread] rAF: Extracted only ${frames.length}/${TARGET_FRAMES} frames before timeout.`);
+    // Wait for the capture loop OR the overall timeout
+    await Promise.race([captureLoopPromise, operationTimeoutPromise]);
+
+    console.log(`[MainThread] Seek: Finished extraction process. Total frames captured: ${framesExtracted}`);
+
+    if (framesExtracted === 0 && duration > 0.1) {
+      throw new Error('Failed to extract any frames using manual seek method, although video seemed valid.');
     }
-    // --- Frame Extraction using requestAnimationFrame --- END ---
+    // --- Frame Extraction using Manual Seeking --- END ---
 
   } catch (error) {
-      console.error('[MainThread] Error in extractFramesFromFile:', error);
-      throw error; // Re-throw error to be caught by handleVideoSelected
+    console.error('[MainThread] Error in extractFramesFromFile:', error);
+    // Ensure timeout is cleared if error happens before race completes
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = null;
+    cancelExtraction = true; // Signal potential ongoing loops to stop
+    throw error; // Re-throw error
   } finally {
-      // Ensure cleanup happens
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = null; 
-      // Cancel animation frame if running
-      if (frameRequestCallbackId) cancelAnimationFrame(frameRequestCallbackId);
-      frameRequestCallbackId = null;
-      console.log('[MainThread] Cleaning up video element and object URL...');
-      video.pause();
-      video.removeAttribute('src'); // Remove source
-      video.onloadedmetadata = null;
-      video.onerror = null;
-      video.onseeked = null;
-      video.load(); // Request browser to release resources associated with the src
-      URL.revokeObjectURL(objectUrl);
-      console.log('[MainThread] Cleanup complete.');
+    // Ensure cleanup happens regardless of success or failure
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = null;
+    cancelExtraction = true; // Ensure any lingering callbacks know to stop
+
+    console.log('[MainThread] Cleaning up video element and object URL...');
+    video.pause();
+    video.onloadedmetadata = null; // Remove listeners
+    video.onerror = null;
+    video.onseeked = null;
+    video.removeAttribute('src'); // Break association
+    video.load(); // Helps release resources
+    URL.revokeObjectURL(objectUrl);
+    console.log('[MainThread] Cleanup complete.');
   }
 
   return frames;
