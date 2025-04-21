@@ -18,7 +18,7 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 // No longer using quick test mode here
 
 type BackgroundVideoControlProps = {
-  onVideoSelected: (src: string) => void;
+  onVideoSelected: (file: File) => void;
 };
 
 export default function BackgroundVideoControl({
@@ -40,16 +40,10 @@ export default function BackgroundVideoControl({
         setError(null);
 
         try {
-          // Create a URL for the video and ensure we have a fresh URL by revokingObjURL if it exists
-          if (window._lastBgVideoUrl) {
-            URL.revokeObjectURL(window._lastBgVideoUrl);
-          }
-          const objectUrl = URL.createObjectURL(file);
-          window._lastBgVideoUrl = objectUrl;
-          
-          // Pre-validate video before sending to effect
+          // Use a temporary video element for validation
           const videoElement = document.createElement('video');
           videoElement.muted = true;
+          const tempUrl = URL.createObjectURL(file); // Create URL just for validation
           
           // Create a promise to wait for either metadata or error
           const validationPromise = new Promise<void>((resolve, reject) => {
@@ -66,24 +60,26 @@ export default function BackgroundVideoControl({
             }, 5000);
           });
           
-          // Start loading
-          videoElement.src = objectUrl;
+          // Start loading for validation
+          videoElement.src = tempUrl; 
           
           // Wait for validation
           await validationPromise;
+
+          // Revoke the temporary validation URL
+          URL.revokeObjectURL(tempUrl);
           
-          console.log("New video selected and validated, created URL:", objectUrl);
-          onVideoSelected(objectUrl);
+          // Pass the File object directly
+          onVideoSelected(file);
           setIsLoading(false);
         } catch (err) {
           console.error("Error pre-validating video:", err);
           setError(err instanceof Error ? err.message : "Unknown error loading video");
           setIsLoading(false);
           
-          // Clean up failed URL
-          if (window._lastBgVideoUrl) {
-            URL.revokeObjectURL(window._lastBgVideoUrl);
-            window._lastBgVideoUrl = undefined;
+          // Clean up validation URL if it exists and failed
+          if (videoElement.src && videoElement.src.startsWith('blob:')) {
+            URL.revokeObjectURL(videoElement.src);
           }
         }
       }

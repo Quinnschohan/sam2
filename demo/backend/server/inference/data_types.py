@@ -16,7 +16,6 @@ class Mask:
     size: List[int]
     counts: str
 
-
 @dataclass_json
 @dataclass
 class BaseRequest:

@@ -101,3 +101,32 @@ export async function* streamFile(url: string, init?: RequestInit): FileStream {
   }
   return null;
 }
+
+// New function to stream a Blob/File
+export async function* streamBlob(
+  blob: Blob,
+  chunkSize: number = 1024 * 1024, // Default chunk size 1MB
+): FileStream {
+  let offset = 0;
+  const totalLength = blob.size;
+  
+  while (offset < totalLength) {
+    const end = Math.min(offset + chunkSize, totalLength);
+    const chunkBlob = blob.slice(offset, end);
+    const chunkBuffer = await chunkBlob.arrayBuffer();
+    const chunkData = new Uint8Array(chunkBuffer);
+    
+    yield {
+      data: chunkData,
+      range: { start: offset, end: end },
+      contentLength: totalLength,
+    };
+    
+    offset = end;
+  }
+  
+  // The generator should implicitly return undefined when done,
+  // matching the FileStream type (return type File | null)
+  // but we return null explicitly for clarity if needed.
+  return null; 
+}

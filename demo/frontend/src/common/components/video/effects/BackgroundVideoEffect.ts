@@ -27,6 +27,9 @@ import {RLEObject, decode} from '@/jscocotools/mask';
 import invariant from 'invariant';
 import {CanvasForm} from 'pts';
 
+// Define structure for internal storage
+type TimestampedBitmapFrame = { timestamp: number; bitmap: ImageBitmap };
+
 export default class BackgroundVideoEffect extends BaseGLEffect {
   private _numMasks: number = 0;
   private _numMasksUniformLocation: WebGLUniformLocation | null = null;
@@ -37,9 +40,8 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
   // Background video properties
   private _backgroundVideoTextureUnit: number = 1;
   private _backgroundVideoTexture: WebGLTexture | null = null;
-  private _backgroundVideo: ImageBitmap | null = null;
-  private _backgroundVideoFrames: ImageBitmap[] = [];
-  private _backgroundVideoSrc: string | null = null;
+  private _backgroundVideo: TimestampedBitmapFrame | null = null;
+  public _backgroundVideoFrames: TimestampedBitmapFrame[] = [];
 
   constructor() {
     super(4); // Number of variants (e.g., different mixing values or visual styles)
@@ -49,243 +51,37 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
 
   async update(options: EffectOptions): Promise<void> {
     await super.update(options);
-    
-    // If this update includes a new background video URL, load it
-    if (options.backgroundVideoSrc && this._backgroundVideoSrc !== options.backgroundVideoSrc) {
-      console.log("Loading new background video:", options.backgroundVideoSrc);
-      
-      // Clear any previously loaded background video frames
-      this._backgroundVideoFrames = [];
-      this._backgroundVideo = null;
-      
-      this._backgroundVideoSrc = options.backgroundVideoSrc;
-      await this.loadBackgroundVideo(options.backgroundVideoSrc);
-    }
   }
 
-  private async loadBackgroundVideo(src: string): Promise<void> {
-    try {
-      console.log(`[BackgroundVideoEffect] loadBackgroundVideo called with src: ${src}`);
-      console.log(`[BackgroundVideoEffect] Starting to load background video from: ${src}`);
-      // Clear existing frames
-      this._backgroundVideoFrames = [];
-      
-      // Create a static placeholder frame first to avoid blank display
-      const placeholderCanvas = new OffscreenCanvas(640, 480);
-      const placeholderCtx = placeholderCanvas.getContext('2d');
-      if (placeholderCtx) {
-        // Create a gradient placeholder
-        const gradient = placeholderCtx.createLinearGradient(0, 0, 640, 480);
-        gradient.addColorStop(0, '#333333');
-        gradient.addColorStop(1, '#999999');
-        placeholderCtx.fillStyle = gradient;
-        placeholderCtx.fillRect(0, 0, 640, 480);
-        placeholderCtx.fillStyle = 'rgba(255,255,255,0.5)';
-        placeholderCtx.font = '24px sans-serif';
-        placeholderCtx.textAlign = 'center';
-        placeholderCtx.fillText('Loading background video...', 320, 240);
-        
-        try {
-          const placeholderBitmap = await createImageBitmap(placeholderCanvas);
-          this._backgroundVideoFrames.push(placeholderBitmap);
-          this._backgroundVideo = placeholderBitmap;
-        } catch (e) {
-          console.warn('Could not create placeholder bitmap');
-        }
-      }
-      
-      // Create and set up a video element to handle any video format including WebM
-      const video = document.createElement('video');
-      video.crossOrigin = 'anonymous';
-      video.autoplay = false;
-      video.muted = true;
-      video.playsInline = true;
-      console.log('[BackgroundVideoEffect] Created video element');
-      
-      // Wait for video to have loadeddata event or error
-      const videoLoadPromise = new Promise<HTMLVideoElement>((resolve, reject) => {
-        console.log('[BackgroundVideoEffect] Setting up video event listeners');
-        // Success handlers
-        video.onloadeddata = () => { console.log('[BackgroundVideoEffect] video.onloadeddata triggered'); resolve(video); };
-        video.oncanplay = () => { console.log('[BackgroundVideoEffect] video.oncanplay triggered'); resolve(video); };
-        
-        // Error handlers
-        video.onerror = (e) => {
-          console.error('[BackgroundVideoEffect] video.onerror triggered:', video.error);
-          reject(new Error(`Failed to load video: ${video.error?.message || 'Unknown error'}`));
-        };
-        
-        // Add a timeout in case events aren't triggered
-        setTimeout(() => {
-          if (video.readyState >= 2) { // HAVE_CURRENT_DATA or better
-            resolve(video);
-          } else {
-            console.warn('Video loading timed out after 8 seconds');
-            // Try to resolve anyway to avoid complete failure
-            if (video.readyState >= 1) { // At least HAVE_METADATA
-              resolve(video);
-            } else {
-              reject(new Error('Video load timeout - insufficient data available'));
-            }
-          }
-        }, 8000);
-      });
-      
-      // Set the source and start loading
-      console.log(`[BackgroundVideoEffect] Setting video.src = ${src}`);
-      video.src = src;
-      video.load();
-      console.log('[BackgroundVideoEffect] video.load() called');
-      
-      // Wait for video to load
+  public setBackgroundFrames(timestamps: number[], bitmaps: ImageBitmap[]): void {
+    // Close existing frames if necessary
+    this._backgroundVideoFrames.forEach(frame => {
       try {
-        await videoLoadPromise;
-        console.log('[BackgroundVideoEffect] videoLoadPromise resolved successfully:', {
-          duration: video.duration,
-          width: video.videoWidth, 
-          height: video.videoHeight,
-          readyState: video.readyState
-        });
-      } catch (error) {
-        console.error('[BackgroundVideoEffect] videoLoadPromise rejected:', error);
-        
-        // Don't exit immediately - try to continue with a fallback approach
-        console.warn('Attempting fallback video loading method...');
-        
-        // Give the video a bit more time to load metadata at minimum
-        try {
-          if (!video.duration && !video.videoWidth) {
-            // Force a wait for at least some metadata
-            await new Promise<void>((resolve) => {
-              const metadataTimeout = setTimeout(() => {
-                resolve(); // Resolve anyway after extended timeout
-              }, 3000);
-              
-              video.onloadedmetadata = () => {
-                clearTimeout(metadataTimeout);
-                resolve();
-              };
-            });
-          }
-          
-          // If we have at least basic dimensions, try to continue
-          if (video.videoWidth && video.videoHeight) {
-            console.log('Fallback loading succeeded with basic metadata:', {
-              width: video.videoWidth,
-              height: video.videoHeight
-            });
-          } else {
-            console.error('Fallback loading failed - no usable video data');
-            return; // Now exit - we'll use the placeholder
-          }
-        } catch (fallbackError) {
-          console.error('Fallback video loading also failed:', fallbackError);
-          return; // Exit early but don't throw - we'll use the placeholder
-        }
-      }
-      
-      // Extract enough frames to cover the video
-      const maxDuration = video.duration;
-      
-      // For longer videos, extract fewer frames per second to avoid memory issues
-      const framesPerSecond = (maxDuration > 10) ? 2 : 3; // Lower frame rate for longer videos
-      const totalFrames = Math.min(30, Math.floor(maxDuration * framesPerSecond) || 5);
-      
-      console.log("Note: Video transparency will be preserved if your uploaded video has alpha channel");
-      
-      // Create a temporary canvas to capture frames
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 640;  // Fallback width if video dimensions are not available
-      canvas.height = video.videoHeight || 480;  // Fallback height
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        throw new Error('Failed to create canvas context');
-      }
-      
-      // Clear any placeholder frames before extracting actual frames
-      this._backgroundVideoFrames = [];
-      
-      // Extract frames by seeking to different positions
-      for (let i = 0; i < totalFrames; i++) {
-        // Calculate time position within the first 2 seconds (or less)
-        const timePosition = (i / totalFrames) * maxDuration;
-        
-        try {
-          // Set the current time and wait for the seeking to complete
-          video.currentTime = timePosition;
-          await new Promise<void>((resolve) => {
-            const seekTimeout = setTimeout(() => {
-              resolve(); // Resolve anyway after timeout
-            }, 300);
-            
-            video.onseeked = () => {
-              clearTimeout(seekTimeout);
-              resolve();
-            };
-          });
-          
-          // Draw the frame to canvas
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          
-          // Convert to ImageBitmap and add to frames
-          const imageBitmap = await createImageBitmap(canvas);
-          this._backgroundVideoFrames.push(imageBitmap);
-          
-        } catch (error) {
-          console.warn(`Error extracting frame ${i}:`, error);
-          // Continue with other frames
-        }
-      }
-      
-      // If we couldn't extract any frames, create a dummy one
-      if (this._backgroundVideoFrames.length === 0) {
-        console.warn('No frames extracted, creating fallback frame');
-        ctx.fillStyle = 'purple'; // Fallback color to make it obvious something loaded
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        try {
-          const imageBitmap = await createImageBitmap(canvas);
-          this._backgroundVideoFrames.push(imageBitmap);
-        } catch (error) {
-          console.error('Failed to create fallback ImageBitmap:', error);
-        }
-      }
-      
-      // Clean up
-      video.pause();
-      video.removeAttribute('src');
-      video.load(); // Properly unload the video resource
-      
-      // Set the initial frame
-      if (this._backgroundVideoFrames.length > 0) {
-        this._backgroundVideo = this._backgroundVideoFrames[0];
-        console.log(`[BackgroundVideoEffect] Successfully loaded ${this._backgroundVideoFrames.length} frames from background video`);
-      } else {
-        console.warn('[BackgroundVideoEffect] No frames were extracted from the background video');
-      }
-    } catch (error) {
-      console.error('[BackgroundVideoEffect] Outer catch block triggered:', error);
-      
-      // Create a simple error indicator frame if all else fails
-      try {
-        const errorCanvas = new OffscreenCanvas(320, 240);
-        const errorCtx = errorCanvas.getContext('2d');
-        if (errorCtx) {
-          errorCtx.fillStyle = 'rgba(255,0,0,0.3)';
-          errorCtx.fillRect(0, 0, 320, 240);
-          errorCtx.fillStyle = 'white';
-          errorCtx.font = '16px sans-serif';
-          errorCtx.textAlign = 'center';
-          errorCtx.fillText('Error loading video', 160, 120);
-          
-          const errorBitmap = await createImageBitmap(errorCanvas);
-          this._backgroundVideoFrames = [errorBitmap];
-          this._backgroundVideo = errorBitmap;
-        }
+        frame.bitmap.close(); // Close bitmap 
       } catch (e) {
-        // Last resort - we tried everything
-        console.error('Could not create error message bitmap');
+        // Ignore potential errors if closing is not supported/needed
       }
+    });
+
+    if (timestamps.length !== bitmaps.length) {
+        console.error('[BackgroundVideoEffect] Mismatch between timestamps and bitmaps count!');
+        this._backgroundVideoFrames = [];
+    } else {
+        // Combine timestamps and bitmaps
+        this._backgroundVideoFrames = timestamps.map((timestamp, index) => ({ 
+            timestamp: timestamp,
+            bitmap: bitmaps[index]
+        }));
+        // Sort frames by timestamp
+        this._backgroundVideoFrames.sort((a, b) => a.timestamp - b.timestamp);
+    }
+    
+    if (this._backgroundVideoFrames.length > 0) {
+      this._backgroundVideo = this._backgroundVideoFrames[0]; // Set initial frame
+      console.log(`[BackgroundVideoEffect] Received and processed ${this._backgroundVideoFrames.length} background frames.`);
+    } else {
+      this._backgroundVideo = null;
+      console.warn('[BackgroundVideoEffect] Received empty background frames array.');
     }
   }
 
@@ -334,7 +130,17 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
       gl.UNSIGNED_BYTE,
       tempData
     );
-    
+
+    // If initial frames are already available (e.g., default), load the first one
+    if (this._backgroundVideoFrames.length > 0) {
+      this._backgroundVideo = this._backgroundVideoFrames[0];
+      if (this._backgroundVideo) {
+        gl.activeTexture(gl.TEXTURE0 + this._backgroundVideoTextureUnit);
+        gl.bindTexture(gl.TEXTURE_2D, this._backgroundVideoTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this._backgroundVideo.bitmap);
+      }
+    }
+
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -387,21 +193,30 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
 
     // Update and bind background video frame
     if (this._backgroundVideoFrames.length > 0) {
-      // Determine which background frame to show based on the current video frame
+      // Determine which background frame to show based on the current video TIME
       const bgFrameCount = this._backgroundVideoFrames.length;
       
-      // Use time parameter if available, otherwise use frame index
-      let mainProgress;
-      if (context.timeParameter !== undefined) {
-        // timeParameter is normalized between 0-1
-        mainProgress = context.timeParameter;
-      } else {
-        mainProgress = context.frameIndex / Math.max(1, context.totalFrames);
+      // Calculate main video current time (in seconds)
+      const mainCurrentTime = context.fps > 0 ? context.frameIndex / context.fps : 0;
+
+      // Find the closest background frame by timestamp
+      // (Using simple linear search for now, could optimize with binary search if needed)
+      let closestFrame = this._backgroundVideoFrames[0] || null;
+      let minDiff = Infinity;
+
+      for (const frame of this._backgroundVideoFrames) {
+          const diff = Math.abs(frame.timestamp - mainCurrentTime);
+          if (diff < minDiff) {
+              minDiff = diff;
+              closestFrame = frame;
+          } else {
+              // Since frames are sorted, once the difference increases, we can stop.
+              break; 
+          }
       }
       
-      const bgFrameIndex = Math.floor(mainProgress * bgFrameCount) % bgFrameCount;
-      this._backgroundVideo = this._backgroundVideoFrames[bgFrameIndex];
-      
+      this._backgroundVideo = closestFrame; 
+
       // Bind the background video texture
       gl.activeTexture(gl.TEXTURE0 + this._backgroundVideoTextureUnit);
       gl.bindTexture(gl.TEXTURE_2D, this._backgroundVideoTexture);
@@ -411,12 +226,13 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
           gl.TEXTURE_2D,
           0,
           gl.RGBA,
-          this._backgroundVideo.width,
-          this._backgroundVideo.height,
+          this._backgroundVideo.bitmap.width, // Use actual bitmap dimensions
+          this._backgroundVideo.bitmap.height,
           0,
           gl.RGBA,
           gl.UNSIGNED_BYTE,
-          this._backgroundVideo,
+          // Use the bitmap property of the selected frame
+          this._backgroundVideo.bitmap, 
         );
         
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -424,19 +240,36 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         
-        console.log('Background video frame bound successfully', bgFrameIndex);
       } else {
-        console.warn('No background video frame available');
+        // Bind placeholder texture if no frame found (or cleared due to error)
+         gl.activeTexture(gl.TEXTURE0 + this._backgroundVideoTextureUnit);
+         gl.bindTexture(gl.TEXTURE_2D, this._backgroundVideoTexture); // Rebind placeholder if needed
+         const tempData = new Uint8Array([0, 0, 0, 0]); 
+         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, tempData);
       }
     } else {
-      console.warn('No background video frames loaded');
+       // Bind placeholder texture if no frames are loaded
+       gl.activeTexture(gl.TEXTURE0 + this._backgroundVideoTextureUnit);
+       gl.bindTexture(gl.TEXTURE_2D, this._backgroundVideoTexture); // Rebind placeholder if needed
+       const tempData = new Uint8Array([0, 0, 0, 0]); 
+       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, tempData);
     }
 
-    // Process and bind all mask textures
+    // Process and bind all mask textures (Original Logic)
     context.masks.forEach((mask, index) => {
+      let decodedMask, maskData;
       try {
-        const decodedMask = decode([mask.bitmap as RLEObject]);
-        const maskData = decodedMask.data as Uint8Array;
+        // Check if mask.bitmap is defined and is an RLEObject
+        if (!mask || !mask.bitmap || typeof (mask.bitmap as RLEObject).counts !== 'string') { 
+          console.warn(`[Worker] Skipping mask ${index}: mask.bitmap is not a valid RLEObject.`);
+          return;
+        }
+        decodedMask = decode([mask.bitmap as RLEObject]);
+        if (!decodedMask || !decodedMask.data) { 
+          console.warn(`[Worker] Skipping mask ${index}: decodedMask or decodedMask.data is undefined after decode.`);
+          return;
+        }
+        maskData = decodedMask.data as Uint8Array;
         
         gl.activeTexture(gl.TEXTURE0 + index + this._masksTextureUnitStart);
         gl.bindTexture(gl.TEXTURE_2D, this._maskTextures[index]);
@@ -456,30 +289,27 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
 
         gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
         
-        // Fix mask issues:
-        // 1. Use actual mask dimensions
-        // 2. Set NEAREST filtering to prevent blurring/trailing
         gl.texImage2D(
           gl.TEXTURE_2D,
           0,
-          gl.LUMINANCE, 
-          // @ts-ignore
-          decodedMask.size[1],  // Use actual dimensions from the mask
-          // @ts-ignore
-          decodedMask.size[0],  // Use actual dimensions from the mask
+          gl.LUMINANCE, // Use LUMINANCE for single-channel mask data
+          context.width, // Use full context width
+          context.height,// Use full context height
           0,
           gl.LUMINANCE,
           gl.UNSIGNED_BYTE,
-          maskData,
+          maskData, 
         );
         
-        // Set texture parameters to avoid trailing effects
+        // Set texture parameters (NEAREST filtering)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
       } catch (error) {
-        console.error(`Error processing mask ${index}:`, error);
+        console.error(`[Worker] Error processing mask ${index}:`, error);
+        console.error(`[Worker] Mask object for index ${index}:`, mask);
       }
     });
 
@@ -513,8 +343,15 @@ export default class BackgroundVideoEffect extends BaseGLEffect {
         }
       });
       this._maskTextures = [];
-      
-      // Close background video frames
+
+      // Close background video frames and clear array
+      this._backgroundVideoFrames.forEach(frame => {
+        try {
+          frame.bitmap.close(); // Close the bitmap part
+        } catch (e) {
+          // Ignore potential errors if closing is not supported/needed
+        }
+      });
       this._backgroundVideoFrames = [];
       this._backgroundVideo = null;
     }

@@ -22,7 +22,10 @@ import VideoWorkerContext from './VideoWorkerContext';
 import {
   ErrorResponse,
   VideoWorkerRequestMessageEvent,
+  SetBackgroundVideoFramesRequest,
 } from './VideoWorkerTypes';
+import BackgroundVideoEffect from './effects/BackgroundVideoEffect';
+import { EffectIndex } from './effects/Effects';
 
 registerSerializableConstructors();
 
@@ -71,6 +74,33 @@ self.addEventListener(
         case 'setEffect': {
           const {name, index, options} = event.data;
           await context.setEffect(name, index, options);
+          break;
+        }
+
+        // Replace old case with handler for the new message type
+        case 'setBackgroundVideoFrames': {
+          const effect = context.getEffect(EffectIndex.BACKGROUND);
+          if (effect instanceof BackgroundVideoEffect) {
+            // Explicitly cast event.data to the correct type
+            const requestData = event.data as SetBackgroundVideoFramesRequest;
+            // Extract both timestamps and bitmaps
+            const timestamps = requestData.frameTimestamps;
+            const bitmaps = requestData.frames;
+
+            // Add validation
+            if (!Array.isArray(timestamps) || !Array.isArray(bitmaps)) {
+                console.error('[Worker] Invalid data received for setBackgroundVideoFrames:', requestData);
+                break; // Exit case if data is invalid
+            }
+
+            console.log(`[Worker] Received ${bitmaps.length} background frames with ${timestamps.length} timestamps.`);
+            // Call setBackgroundFrames with BOTH arguments
+            effect.setBackgroundFrames(timestamps, bitmaps);
+            // Trigger a redraw to show the new background immediately
+            context.goToFrame(context.frameIndex);
+          } else {
+            console.warn('[Worker] Received setBackgroundVideoFrames message, but background effect is not BackgroundVideoEffect.');
+          }
           break;
         }
 
@@ -127,7 +157,10 @@ self.addEventListener(
           await tracker?.clearPointsInVideo();
           break;
         case 'streamMasks': {
-          const {frameIndex, quickTestMode} = event.data;
+          // Cast to potentially include optional properties
+          const data = event.data as Partial<{frameIndex: number, quickTestMode: boolean}>;
+          const frameIndex = data.frameIndex ?? context.frameIndex; 
+          const quickTestMode = data.quickTestMode ?? false; // Access safely
           context.allowEffectAnimation(false);
           await tracker?.streamMasks(frameIndex, quickTestMode);
           break;
@@ -137,11 +170,14 @@ self.addEventListener(
           break;
       }
     } catch (error) {
+      console.error('[Worker] Error processing message:', error);
       const serializedError = serializeError(error);
       const errorResponse: ErrorResponse = {
         action: 'error',
         error: serializedError,
       };
+      // Send error back to the main thread
+      // TODO: Define specific error message types for background processing failures
       self.postMessage(errorResponse);
     }
   },

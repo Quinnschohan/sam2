@@ -29,6 +29,7 @@ export type ImageFrame = {
   bitmap: VideoFrame;
   timestamp: number;
   duration: number;
+  fps: number;
 };
 
 export type DecodedVideo = {
@@ -39,35 +40,44 @@ export type DecodedVideo = {
   fps: number;
 };
 
-function decodeInternal(
+export function decodeInternal(
   identifier: string,
   onReady: (mp4File: MP4File) => Promise<void>,
-  onProgress: (decodedVideo: DecodedVideo) => void,
+  onProgress: (decodedVideo: DecodedVideo) => boolean,
 ): Promise<DecodedVideo> {
   return new Promise((resolve, reject) => {
     const imageFrames: ImageFrame[] = [];
     const globalSamples: MP4Sample[] = [];
 
-    let decoder: VideoDecoder;
-
+    let decoder: VideoDecoder | null = null;
     let track: MP4VideoTrack | null = null;
     const mp4File = createFile();
+    let isDecodingStopped = false;
 
-    mp4File.onError = reject;
+    const cleanupDecoder = () => {
+      if (isDecodingStopped) return;
+      isDecodingStopped = true;
+      console.log(`[VideoDecoder ${identifier}] Cleaning up decoder...`);
+      try {
+        mp4File?.stop();
+        if (decoder && decoder.state !== 'closed') {
+          decoder.close();
+        }
+      } catch (e) {
+        console.warn(`[VideoDecoder ${identifier}] Error during cleanup:`, e);
+      } finally {
+        decoder = null;
+      }
+    };
+
+    mp4File.onError = (err) => {
+      cleanupDecoder();
+      reject(err);
+    }
     mp4File.onReady = async info => {
       if (info.videoTracks.length > 0) {
         track = info.videoTracks[0];
       } else {
-        // The video does not have a video track, so looking if there is an
-        // "otherTracks" available. Note, I couldn't find any documentation
-        // about "otherTracks" in WebCodecs [1], but it was available in the
-        // info for MP4V-ES, which isn't supported by Chrome [2].
-        // However, we'll still try to get the track and then throw an error
-        // further down in the VideoDecoder.isConfigSupported if the codec is
-        // not supported by the browser.
-        //
-        // [1] https://www.w3.org/TR/webcodecs/
-        // [2] https://developer.mozilla.org/en-US/docs/Web/Media/Formats/Video_codecs#mp4v-es
         track = info.otherTracks[0];
       }
 
@@ -81,21 +91,16 @@ function decodeInternal(
 
       let frame_n = 0;
       decoder = new VideoDecoder({
-        // Be careful with any await in this function. The VideoDecoder will
-        // not await output and continue calling it with decoded frames.
         async output(inputFrame) {
-          if (track == null) {
-            reject(new Error(`${identifier} does not contain a video track`));
+          let shouldContinue = true;
+          
+          if (isDecodingStopped || !decoder || !track) {
+            inputFrame.close();
             return;
           }
 
           const saveTrack = track;
 
-          // If the track has edits, we'll need to check that only frames are
-          // returned that are within the edit list. This can happen for
-          // trimmed videos that have not been transcoded and therefore the
-          // video track contains more frames than those visually rendered when
-          // playing back the video.
           if (edits != null && edits.length > 0) {
             const cts = Math.round(
               (inputFrame.timestamp * timescale) / 1_000_000,
@@ -106,13 +111,6 @@ function decodeInternal(
             }
           }
 
-          // Workaround for Chrome where the decoding stops at ~17 frames unless
-          // the VideoFrame is closed. So, the workaround here is to create a
-          // new VideoFrame and close the decoded VideoFrame.
-          // The frame has to be cloned, or otherwise some frames at the end of the
-          // video will be black. Note, the default VideoFrame.clone doesn't work
-          // and it is using a frame cloning found here:
-          // https://webcodecs-blogpost-demo.glitch.me/
           if (
             (isAndroid && isChrome) ||
             (isWindows && isChrome) ||
@@ -130,13 +128,13 @@ function decodeInternal(
               bitmap: inputFrame,
               timestamp: inputFrame.timestamp,
               duration,
+              fps:
+                (saveTrack.nb_samples / saveTrack.duration) *
+                saveTrack.timescale,
             });
-            // Sort frames in order of timestamp. This is needed because Safari
-            // can return decoded frames out of order.
-            imageFrames.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
-            // Update progress on first frame and then every 40th frame
-            if (onProgress != null && frame_n % 100 === 0) {
-              onProgress({
+            imageFrames.sort((a, b) => (a.timestamp > b.timestamp ? 1 : -1));
+            if (onProgress != null && (frame_n === 0 || frame_n % 10 === 0)) {
+              shouldContinue = onProgress({
                 width: saveTrack.track_width,
                 height: saveTrack.track_height,
                 frames: imageFrames,
@@ -149,22 +147,27 @@ function decodeInternal(
           }
           frame_n++;
 
-          if (saveTrack.nb_samples === frame_n) {
-            // Sort frames in order of timestamp. This is needed because Safari
-            // can return decoded frames out of order.
-            imageFrames.sort((a, b) => (a.timestamp > b.timestamp ? 1 : -1));
-            resolve({
-              width: saveTrack.track_width,
-              height: saveTrack.track_height,
-              frames: imageFrames,
-              numFrames: saveTrack.nb_samples,
-              fps:
-                (saveTrack.nb_samples / saveTrack.duration) *
-                saveTrack.timescale,
-            });
+          if (!shouldContinue || saveTrack.nb_samples === frame_n) {
+            cleanupDecoder();
+            
+            if (saveTrack.nb_samples === frame_n) {
+              imageFrames.sort((a, b) => (a.timestamp > b.timestamp ? 1 : -1));
+              resolve({
+                width: saveTrack.track_width,
+                height: saveTrack.track_height,
+                frames: imageFrames,
+                numFrames: saveTrack.nb_samples,
+                fps:
+                  (saveTrack.nb_samples / saveTrack.duration) *
+                  saveTrack.timescale,
+              });
+            } else {
+              console.log(`[VideoDecoder ${identifier}] Decoding stopped early by callback.`);
+            }
           }
         },
         error(error) {
+          cleanupDecoder();
           reject(error);
         },
       });
@@ -183,7 +186,7 @@ function decodeInternal(
           } else if (entry.hvcC) {
             entry.hvcC.write(stream);
           }
-          description = new Uint8Array(stream.buffer, 8); // Remove the box header.
+          description = new Uint8Array(stream.buffer, 8);
           break;
         }
       }
@@ -194,10 +197,18 @@ function decodeInternal(
         codedHeight: track.track_height,
         description,
       };
+      // Log configuration
+      console.log(`[VideoDecoder ${identifier}] Attempting configuration:`, configuration);
       const supportedConfig =
         await VideoDecoder.isConfigSupported(configuration);
+      // Log support result
+      console.log(`[VideoDecoder ${identifier}] isConfigSupported result:`, supportedConfig);
       if (supportedConfig.supported == true) {
+        // Log before configure
+        console.log(`[VideoDecoder ${identifier}] Configuring decoder...`);
         decoder.configure(configuration);
+        // Log after configure
+        console.log(`[VideoDecoder ${identifier}] Decoder configured. State: ${decoder.state}`);
 
         mp4File.setExtractionOptions(track.id, null, {
           nbSamples: Infinity,
@@ -211,6 +222,7 @@ function decodeInternal(
             )} is not supported`,
           ),
         );
+        cleanupDecoder();
         return;
       }
     };
@@ -220,7 +232,14 @@ function decodeInternal(
       _user: unknown,
       samples: MP4Sample[],
     ) => {
+      console.log(`[VideoDecoder ${identifier}] mp4box.onSamples called with ${samples.length} samples.`); 
+      if (isDecodingStopped || !decoder) {
+          console.log(`[VideoDecoder ${identifier}] onSamples: Skipped decoding (stopped or no decoder).`);
+          return;
+      }
+
       for (const sample of samples) {
+        if (isDecodingStopped || !decoder) break;
         globalSamples.push(sample);
         decoder.decode(
           new EncodedVideoChunk({
@@ -231,8 +250,6 @@ function decodeInternal(
           }),
         );
       }
-      await decoder.flush();
-      decoder.close();
     };
 
     onReady(mp4File);
@@ -241,7 +258,7 @@ function decodeInternal(
 
 export function decode(
   file: File,
-  onProgress: (decodedVideo: DecodedVideo) => void,
+  onProgress: (decodedVideo: DecodedVideo) => boolean,
 ): Promise<DecodedVideo> {
   return decodeInternal(
     file.name,
@@ -263,7 +280,7 @@ export function decode(
 
 export function decodeStream(
   fileStream: FileStream,
-  onProgress: (decodedVideo: DecodedVideo) => void,
+  onProgress: (decodedVideo: DecodedVideo) => boolean,
 ): Promise<DecodedVideo> {
   return decodeInternal(
     'stream',

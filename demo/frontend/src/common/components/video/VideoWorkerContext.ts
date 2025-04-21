@@ -53,6 +53,7 @@ import {
   RenderingErrorResponse,
   VideoWorkerResponse,
 } from './VideoWorkerTypes';
+import BackgroundVideoEffect from './effects/BackgroundVideoEffect';
 
 function getEvenlySpacedItems(decodedVideo: DecodedVideo, x: number) {
   const p = Math.floor(decodedVideo.numFrames / Math.max(1, x - 1));
@@ -107,6 +108,10 @@ export default class VideoWorkerContext {
 
   private _effects: Effect[];
   private _tracklets: Tracklet[] = [];
+
+  public getEffect(index: EffectIndex): Effect {
+    return this._effects[index];
+  }
 
   public get width(): number {
     return this._decodedVideo?.width ?? 0;

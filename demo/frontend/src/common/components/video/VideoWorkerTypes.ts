@@ -73,6 +73,27 @@ export type EncodeVideoRequest = Request<'encode', unknown>;
 
 export type EnableStatsRequest = Request<'enableStats', unknown>;
 
+// Restore original request type for background video frames
+export type SetBackgroundVideoFramesRequest = Request<
+  'setBackgroundVideoFrames',
+  {
+    frameTimestamps: number[]; // Array of timestamps
+    frames: ImageBitmap[];      // Array of corresponding bitmaps (transferable)
+  }
+>;
+
+// Remove SetBackgroundVideoFileRequest
+/*
+export type SetBackgroundVideoFileRequest = Request<
+  'setBackgroundVideoFile',
+  {
+    file: File;
+    width: number; 
+    height: number;
+  }
+>;
+*/
+
 export type VideoWorkerRequest =
   | SetCanvasRequest
   | SetSourceRequest
@@ -83,7 +104,9 @@ export type VideoWorkerRequest =
   | FilmstripRequest
   | SetEffectRequest
   | EncodeVideoRequest
-  | EnableStatsRequest;
+  | EnableStatsRequest
+  // Restore original request type to the union
+  | SetBackgroundVideoFramesRequest;
 
 export type VideoWorkerRequestMessageEvent = MessageEvent<VideoWorkerRequest>;
 

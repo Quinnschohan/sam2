@@ -48,3 +48,16 @@ export async function cloneFrame(frame: VideoFrame): Promise<VideoFrame> {
     visibleRect: frame.visibleRect ?? undefined,
   });
 }
+
+// New utility to convert VideoFrame to ImageBitmap
+export async function videoFrameToImageBitmap(frame: VideoFrame): Promise<ImageBitmap> {
+  // createImageBitmap directly accepts VideoFrame
+  try {
+    const bitmap = await createImageBitmap(frame);
+    return bitmap;
+  } catch (error) {
+    console.error("Error converting VideoFrame to ImageBitmap:", error);
+    // Re-throw or handle as needed, maybe return a placeholder?
+    throw error; 
+  }
+}

@@ -23,5 +23,8 @@ FROM nginx:latest
 # Copy built files from the build stage to the production image
 COPY --from=build /app/dist /usr/share/nginx/html
 
+# Copy custom nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 # Container startup command for the web server (nginx in this case)
 CMD ["nginx", "-g", "daemon off;"]
